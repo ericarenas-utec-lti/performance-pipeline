@@ -9,7 +9,7 @@ on:
 jobs:
   performance:
     name: Performance Tests with JMeter
-    runs-on: ubuntu-latest
+    runs-on: windows-latest  # Cambiamos a Windows para PowerShell
     
     steps:
     - name: Checkout code
@@ -23,67 +23,42 @@ jobs:
     - name: Clean results directory
       run: |
         echo "🧹 Cleaning previous results..."
-        rm -rf results/*
-        ls -la results/ || echo "Results directory is empty"
+        Remove-Item -Path "results" -Recurse -Force -ErrorAction SilentlyContinue
+        New-Item -ItemType Directory -Path "results" -Force
         
-    - name: Setup JMeter test environment
-      run: |
-        echo "🔧 Setting up test environment..."
-        ls -la test-plans/ || echo "No test-plans directory"
-        ls -la config/ || echo "No config directory"
-        
-    - name: Make threshold script executable
-      run: chmod +x config/check-thresholds.sh
-      
     - name: Run JMeter performance tests with HTML report
       run: |
         echo "🚀 Running JMeter performance tests..."
         
-        # Primero ejecutar sin reporte HTML para generar JTL
-        docker run --rm \
-          -v $PWD/test-plans:/test-plans \
-          -v $PWD/results:/results \
-          justb4/jmeter:5.5 \
-          -n -t /test-plans/api-performance.jmx \
-          -l /results/results.jtl \
-          -Jthreads=5 \
-          -Jrampup=15 \
+        # Ejecutar JMeter y generar reporte HTML
+        docker run --rm `
+          -v "$PWD/test-plans:/test-plans" `
+          -v "$PWD/results:/results" `
+          justb4/jmeter:5.5 `
+          -n -t /test-plans/api-performance.jmx `
+          -l /results/results.jtl `
+          -e -o /results/html-report `
+          -Jthreads=5 `
+          -Jrampup=15 `
           -Jduration=30
-        
-        # Luego generar reporte HTML desde el JTL
-        echo "📊 Generating HTML report from results..."
-        docker run --rm \
-          -v $PWD/results:/results \
-          justb4/jmeter:5.5 \
-          -g /results/results.jtl \
-          -o /results/html-report
           
     - name: Verify results were generated
       run: |
         echo "✅ Checking generated files..."
-        ls -la results/
-        if [ -f "results/results.jtl" ]; then
-          echo "📈 Results file: $(wc -l < results/results.jtl) lines"
-        else
+        Get-ChildItem "results" -Recurse
+        if (Test-Path "results/results.jtl") {
+          $lineCount = (Get-Content "results/results.jtl" | Measure-Object -Line).Lines
+          echo "📈 Results file: $lineCount lines"
+        } else {
           echo "❌ No results file generated"
           exit 1
-        fi
+        }
         
-        if [ -d "results/html-report" ]; then
-          echo "🌐 HTML report generated successfully"
-          ls -la results/html-report/ | head -10
-        else
-          echo "⚠️ HTML report not generated"
-        fi
-        
-    - name: Verify performance thresholds
+    - name: Verify performance thresholds with PowerShell
+      shell: pwsh
       run: |
-        echo "📊 Verifying performance thresholds..."
-        docker run --rm \
-          -v $PWD/results:/results \
-          -v $PWD/config:/config \
-          alpine:latest \
-          /bin/sh -c "chmod +x /config/check-thresholds.sh && /config/check-thresholds.sh /results/results.jtl"
+        echo "📊 Verifying performance thresholds with PowerShell..."
+        .\config\check-thresholds.ps1 "results/results.jtl"
           
     - name: Upload HTML Report Artifact
       uses: actions/upload-artifact@v4
@@ -104,38 +79,38 @@ jobs:
         overwrite: true
         
     - name: Display performance summary
+      shell: pwsh
       run: |
         echo "📈 PERFORMANCE TEST SUMMARY"
         echo "============================"
         
-        if [ -f "results/results.jtl" ]; then
-          # Contar requests en formato CSV o XML
-          if head -1 results/results.jtl | grep -q "timeStamp"; then
-            TOTAL_REQUESTS=$(tail -n +2 results/results.jtl | wc -l)
-            ERROR_REQUESTS=$(tail -n +2 results/results.jtl | grep -c ",false,\|,[45][0-9][0-9],")
-          else
-            TOTAL_REQUESTS=$(grep -c "<httpSample" results/results.jtl 2>/dev/null || echo "0")
-            ERROR_REQUESTS=$(grep "<httpSample" results/results.jtl 2>/dev/null | grep -c 's="false"' 2>/dev/null || echo "0")
-          fi
+        if (Test-Path "results/results.jtl") {
+          $content = Get-Content "results/results.jtl"
+          $totalRequests = ($content | Select-String "<httpSample").Count
+          if ($totalRequests -eq 0) {
+            # Intentar formato CSV
+            $totalRequests = ($content | Select-String "timeStamp").Count - 1
+          }
           
-          echo "✅ Total Requests: $TOTAL_REQUESTS"
-          echo "❌ Error Requests: $ERROR_REQUESTS"
+          $errorRequests = ($content | Select-String 's="false"').Count
+          if ($errorRequests -eq 0) {
+            # Intentar formato CSV
+            $errorRequests = ($content | Select-String ",false,").Count
+          }
           
-          if [ "$TOTAL_REQUESTS" -gt 0 ]; then
-            ERROR_RATE=$((ERROR_REQUESTS * 100 / TOTAL_REQUESTS))
-            echo "📊 Error Rate: ${ERROR_RATE}%"
-          fi
-        else
+          echo "✅ Total Requests: $totalRequests"
+          echo "❌ Error Requests: $errorRequests"
+          
+          if ($totalRequests -gt 0) {
+            $errorRate = [math]::Round(($errorRequests / $totalRequests) * 100, 2)
+            echo "📊 Error Rate: ${errorRate}%"
+          }
+        } else {
           echo "❌ No results file generated"
-        fi
+        }
         
-        if [ -d "results/html-report" ]; then
+        if (Test-Path "results/html-report/index.html") {
           echo "🌐 HTML Dashboard: Generated and available as artifact"
-        else
+        } else {
           echo "⚠️ HTML Dashboard: Not generated"
-        fi
-        
-        echo ""
-        echo "📦 Artifacts Available:"
-        echo "   - jmeter-html-dashboard: Interactive performance dashboard"
-        echo "   - jmeter-raw-results: Raw test results and logs"
+        }
