@@ -1,0 +1,24 @@
+services:
+  jmeter-master:
+    image: justb4/jmeter:5.5
+    container_name: jmeter-performance-test
+    volumes:
+      - ./test-plans:/test-plans
+      - ./results:/results  
+      - ./config:/config
+    working_dir: /workspace
+    command: 
+      - -n
+      - -t
+      - /test-plans/api-performance.jmx
+      - -p
+      - /config/test.properties
+      - -l
+      - /results/results.jtl
+      - -e
+      - -o
+      - /results/html-report
+      - -Jthreads=50
+      - -Jrampup=120
+      - -Jduration=300
+      - -Jhost=https://httpbin.org
