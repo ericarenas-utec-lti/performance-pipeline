@@ -9,26 +9,32 @@ on:
 jobs:
   performance:
     name: Performance Tests with JMeter
-    runs-on: windows-latest  # Cambiamos a Windows para PowerShell
+    runs-on: windows-latest
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       
     - name: Create directory structure
+      shell: pwsh
       run: |
-        mkdir -p test-plans config results
-        echo "📁 Project structure created"
+        Write-Host "📁 Creating project structure..."
+        New-Item -ItemType Directory -Path "test-plans", "config", "results" -Force
+        Get-ChildItem -Recurse
         
     - name: Clean results directory
+      shell: pwsh
       run: |
-        echo "🧹 Cleaning previous results..."
-        Remove-Item -Path "results" -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "🧹 Cleaning previous results..."
+        if (Test-Path "results") {
+            Remove-Item -Path "results" -Recurse -Force
+        }
         New-Item -ItemType Directory -Path "results" -Force
         
     - name: Run JMeter performance tests with HTML report
+      shell: pwsh
       run: |
-        echo "🚀 Running JMeter performance tests..."
+        Write-Host "🚀 Running JMeter performance tests..."
         
         # Ejecutar JMeter y generar reporte HTML
         docker run --rm `
@@ -43,21 +49,22 @@ jobs:
           -Jduration=30
           
     - name: Verify results were generated
-      run: |
-        echo "✅ Checking generated files..."
-        Get-ChildItem "results" -Recurse
-        if (Test-Path "results/results.jtl") {
-          $lineCount = (Get-Content "results/results.jtl" | Measure-Object -Line).Lines
-          echo "📈 Results file: $lineCount lines"
-        } else {
-          echo "❌ No results file generated"
-          exit 1
-        }
-        
-    - name: Verify performance thresholds with PowerShell
       shell: pwsh
       run: |
-        echo "📊 Verifying performance thresholds with PowerShell..."
+        Write-Host "✅ Checking generated files..."
+        Get-ChildItem "results" -Recurse
+        if (Test-Path "results/results.jtl") {
+            $lineCount = (Get-Content "results/results.jtl" | Measure-Object -Line).Lines
+            Write-Host "📈 Results file: $lineCount lines"
+        } else {
+            Write-Host "❌ No results file generated"
+            exit 1
+        }
+        
+    - name: Verify performance thresholds
+      shell: pwsh
+      run: |
+        Write-Host "📊 Verifying performance thresholds..."
         .\config\check-thresholds.ps1 "results/results.jtl"
           
     - name: Upload HTML Report Artifact
@@ -81,36 +88,44 @@ jobs:
     - name: Display performance summary
       shell: pwsh
       run: |
-        echo "📈 PERFORMANCE TEST SUMMARY"
-        echo "============================"
+        Write-Host "📈 PERFORMANCE TEST SUMMARY" -ForegroundColor Cyan
+        Write-Host "============================" -ForegroundColor Cyan
         
         if (Test-Path "results/results.jtl") {
-          $content = Get-Content "results/results.jtl"
-          $totalRequests = ($content | Select-String "<httpSample").Count
-          if ($totalRequests -eq 0) {
-            # Intentar formato CSV
-            $totalRequests = ($content | Select-String "timeStamp").Count - 1
-          }
-          
-          $errorRequests = ($content | Select-String 's="false"').Count
-          if ($errorRequests -eq 0) {
-            # Intentar formato CSV
-            $errorRequests = ($content | Select-String ",false,").Count
-          }
-          
-          echo "✅ Total Requests: $totalRequests"
-          echo "❌ Error Requests: $errorRequests"
-          
-          if ($totalRequests -gt 0) {
-            $errorRate = [math]::Round(($errorRequests / $totalRequests) * 100, 2)
-            echo "📊 Error Rate: ${errorRate}%"
-          }
+            $content = Get-Content "results/results.jtl"
+            
+            # Contar requests - método para CSV
+            $totalRequests = 0
+            $errorRequests = 0
+            
+            if ($content[0] -match "timeStamp,elapsed,label") {
+                # Formato CSV - contar líneas después del header
+                $totalRequests = $content.Count - 1
+                $errorRequests = ($content | Select-String ",false,").Count
+            } else {
+                # Formato XML
+                $totalRequests = ($content | Select-String "<httpSample").Count
+                $errorRequests = ($content | Select-String 's="false"').Count
+            }
+            
+            Write-Host "✅ Total Requests: $totalRequests" -ForegroundColor Green
+            Write-Host "❌ Error Requests: $errorRequests" -ForegroundColor Red
+            
+            if ($totalRequests -gt 0) {
+                $errorRate = [math]::Round(($errorRequests / $totalRequests) * 100, 2)
+                Write-Host "📊 Error Rate: ${errorRate}%" -ForegroundColor Yellow
+            }
         } else {
-          echo "❌ No results file generated"
+            Write-Host "❌ No results file generated" -ForegroundColor Red
         }
         
         if (Test-Path "results/html-report/index.html") {
-          echo "🌐 HTML Dashboard: Generated and available as artifact"
+            Write-Host "🌐 HTML Dashboard: Generated and available as artifact" -ForegroundColor Green
         } else {
-          echo "⚠️ HTML Dashboard: Not generated"
+            Write-Host "⚠️ HTML Dashboard: Not generated" -ForegroundColor Yellow
         }
+        
+        Write-Host "" 
+        Write-Host "📦 Artifacts Available:" -ForegroundColor Cyan
+        Write-Host "   - jmeter-html-dashboard: Interactive performance dashboard" -ForegroundColor Gray
+        Write-Host "   - jmeter-raw-results: Raw test results and logs" -ForegroundColor Gray
