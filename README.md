@@ -1,5 +1,3 @@
-Te ayudo a crear un README completo. Aquí está el contenido:
-
 # 🚀 Performance Pipeline
 
 Pipeline de pruebas de performance automatizado con JMeter, Docker y reportes HTML.
