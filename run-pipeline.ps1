@@ -4,6 +4,9 @@
 #>
 
 Write-Host "=== PIPELINE DE PRUEBAS DE RENDIMIENTO JMETER ===" -ForegroundColor Cyan
+Write-Host "📊 Configuración: 50 usuarios, 2min ramp-up, 5min duración" -ForegroundColor Yellow
+
+Write-Host "=== PIPELINE DE PRUEBAS DE RENDIMIENTO JMETER ===" -ForegroundColor Cyan
 
 # 1. Limpiar entorno
 Write-Host "`n1. PREPARANDO ENTORNO..." -ForegroundColor Yellow

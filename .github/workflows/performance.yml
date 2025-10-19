@@ -48,9 +48,9 @@ jobs:
           justb4/jmeter:5.5 \
           -n -t /test-plans/api-performance.jmx \
           -l /results/results.jtl \
-          -Jthreads=3 \
-          -Jrampup=10 \
-          -Jduration=20
+          -Jthreads=50 \
+          -Jrampup=120 \
+          -Jduration=300
         
         echo "✅ JMeter execution completed"
         

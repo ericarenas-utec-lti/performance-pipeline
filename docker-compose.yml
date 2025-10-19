@@ -10,8 +10,8 @@ services:
       /bin/sh -c "
       jmeter -n -t /test-plans/api-performance.jmx
         -l /results/results.jtl
-        -Jthreads=5
-        -Jrampup=10
-        -Jduration=30
+        -Jthreads=50
+        -Jrampup=120
+        -Jduration=300
         -e -o /results/html-report
       "

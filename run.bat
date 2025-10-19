@@ -4,6 +4,8 @@ echo ================================
 echo   PERFORMANCE PIPELINE RUNNER
 echo ================================
 echo.
+echo "📊 Load: 50 users, 2min ramp-up, 5min duration"
+echo.
 
 echo [1/5] Cleaning previous results...
 if exist results rmdir /s /q results
@@ -31,6 +33,7 @@ if %errorlevel% equ 0 (
     echo.
     echo 📊 HTML Report: results\html-report\index.html
     echo 📈 Results: results\results.jtl
+    echo 👥 Load: 50 users, 2min ramp-up, 5min duration
 ) else (
     echo.
     echo ❌ PIPELINE FAILED
