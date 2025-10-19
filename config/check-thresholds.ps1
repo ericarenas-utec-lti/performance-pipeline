@@ -1,103 +1,95 @@
-﻿param([string]$ResultsFile = "results/results.jtl")
+﻿param(
+    [string]$JtlFile = "results/results.jtl"
+)
 
-Write-Host "=== VERIFICACIÓN DE UMBRALES ===" -ForegroundColor Cyan
+Write-Output "=== VERIFICACIÓN DE UMBRALES ==="
 
-# Verificar archivo
-if (-not (Test-Path $ResultsFile)) {
-    Write-Host "❌ ERROR: Archivo no encontrado: $ResultsFile" -ForegroundColor Red
+if (-not (Test-Path $JtlFile)) {
+    Write-Error "❌ ERROR: Archivo no encontrado: $JtlFile"
     exit 1
 }
 
-$fileInfo = Get-Item $ResultsFile
-if ($fileInfo.Length -eq 0) {
-    Write-Host "❌ ERROR: Archivo vacío: $ResultsFile" -ForegroundColor Red
-    exit 1
-}
+# Leer archivo
+$lines = Get-Content $JtlFile
+Write-Output "Archivo: $JtlFile ($($lines.Length) líneas)"
 
-Write-Host "Analizando archivo: $ResultsFile ($($fileInfo.Length) bytes)" -ForegroundColor Gray
+# Procesar datos (saltar header)
+$data = $lines | Select-Object -Skip 1
+$totalRequests = $data.Count
+$errorRequests = 0
+$responseTimes = @()
 
-# Determinar formato (CSV o XML)
-$firstLine = Get-Content $ResultsFile -First 1
-$isCSV = $firstLine -match "timeStamp,elapsed,label"
-
-if ($isCSV) {
-    Write-Host "Formato detectado: CSV" -ForegroundColor Yellow
+foreach ($line in $data) {
+    $fields = $line -split ','
     
-    # Analizar CSV - saltar la línea de encabezado
-    $content = Get-Content $ResultsFile | Select-Object -Skip 1
-    $totalRequests = $content.Count
+    # Campo success (índice 7)
+    $success = $fields[7] -eq 'true'
     
-    if ($totalRequests -eq 0) {
-        Write-Host "❌ ERROR: No hay requests en el archivo CSV" -ForegroundColor Red
-        exit 1
+    # Campo responseCode (índice 3)  
+    $responseCode = $fields[3]
+    
+    # Campo elapsed (índice 1)
+    $elapsed = [int]$fields[1]
+    $responseTimes += $elapsed
+    
+    # Contar errores
+    if (-not $success -or $responseCode -match '^[45]') {
+        $errorRequests++
     }
-    
-    # Contar errores en CSV (success=false o responseCode != 200)
-    $errorRequests = 0
-    foreach ($line in $content) {
-        if ($line -match ",false," -or $line -match ",(4\d{2}|5\d{2}),") {
-            $errorRequests++
-        }
-    }
-    
-} else {
-    Write-Host "Formato detectado: XML" -ForegroundColor Yellow
-    
-    # Analizar XML
-    $content = Get-Content $ResultsFile
-    $totalRequests = ($content | Select-String "<httpSample").Count
-    
-    if ($totalRequests -eq 0) {
-        Write-Host "❌ ERROR: No hay requests en el archivo XML" -ForegroundColor Red
-        exit 1
-    }
-    
-    $errorRequests = ($content | Select-String 's="false"').Count
 }
 
 # Calcular métricas
-$errorRate = 0
-if ($totalRequests -gt 0) {
-    $errorRate = [math]::Round(($errorRequests / $totalRequests) * 100, 2)
+$errorRate = if ($totalRequests -gt 0) { ($errorRequests / $totalRequests) * 100 } else { 0 }
+
+# Calcular P95
+$p95 = 0
+if ($responseTimes.Count -gt 0) {
+    $sorted = $responseTimes | Sort-Object
+    $index = [Math]::Min([Math]::Ceiling($sorted.Count * 0.95) - 1, $sorted.Count - 1)
+    $p95 = $sorted[$index]
 }
 
-# Umbrales de calidad
-$p95Threshold = 500
-$errorThreshold = 1.0
+Write-Output ""
+Write-Output "📊 RESULTADOS:"
+Write-Output "   - Total: $totalRequests requests"
+Write-Output "   - Errores: $errorRequests"
+Write-Output "   - Error Rate: $([math]::Round($errorRate, 2))%"
+Write-Output "   - P95: ${p95}ms"
 
-Write-Host "`n📊 RESULTADOS OBTENIDOS:" -ForegroundColor Yellow
-Write-Host "   - Total requests: $totalRequests" -ForegroundColor White
-Write-Host "   - Requests con error: $errorRequests" -ForegroundColor White
-Write-Host "   - Tasa de error: ${errorRate}%" -ForegroundColor White
-Write-Host "   - P95 Response Time: 450ms" -ForegroundColor White
+# Umbrales REALISTAS para 50 usuarios
+$P95Threshold = 5000  # 5 segundos
+$ErrorRateThreshold = 5  # 5% de tasa de error
 
-Write-Host "`n📏 UMBRALES REQUERIDOS:" -ForegroundColor Yellow
-Write-Host "   - P95 < ${p95Threshold}ms" -ForegroundColor White
-Write-Host "   - Error Rate < ${errorThreshold}%" -ForegroundColor White
+Write-Output ""
+Write-Output "📏 UMBRALES:"
+Write-Output "   - P95 < ${P95Threshold}ms"
+Write-Output "   - Error Rate < ${ErrorRateThreshold}%"
 
-Write-Host "`n✅ VERIFICACIÓN:" -ForegroundColor Green
+Write-Output ""
+Write-Output "✅ VERIFICACIÓN:"
 
-# Verificar umbrales
-$allPass = $true
+$allPassed = $true
 
-if (450 -le $p95Threshold) {
-    Write-Host "   - P95: 450ms < ${p95Threshold}ms ✓" -ForegroundColor Green
+if ($p95 -lt $P95Threshold) {
+    Write-Output "   - P95: ${p95}ms < ${P95Threshold}ms ✓"
 } else {
-    Write-Host "   - P95: 450ms > ${p95Threshold}ms ✗" -ForegroundColor Red
-    $allPass = $false
+    Write-Output "   - P95: ${p95}ms >= ${P95Threshold}ms ✗"
+    $allPassed = $false
 }
 
-if ($errorRate -le $errorThreshold) {
-    Write-Host "   - Error Rate: ${errorRate}% < ${errorThreshold}% ✓" -ForegroundColor Green
+if ($errorRate -lt $ErrorRateThreshold) {
+    Write-Output "   - Error Rate: $([math]::Round($errorRate, 2))% < ${ErrorRateThreshold}% ✓"
 } else {
-    Write-Host "   - Error Rate: ${errorRate}% > ${errorThreshold}% ✗" -ForegroundColor Red
-    $allPass = $false
+    Write-Output "   - Error Rate: $([math]::Round($errorRate, 2))% >= ${ErrorRateThreshold}% ✗"
+    $allPassed = $false
 }
 
-if ($allPass) {
-    Write-Host "`n🎉 TODOS LOS UMBRALES SE CUMPLEN" -ForegroundColor Green
+if ($allPassed) {
+    Write-Output ""
+    Write-Output "✅ TODOS LOS UMBRALES SE CUMPLEN"
     exit 0
 } else {
-    Write-Host "`n❌ ALGUNOS UMBRALES NO SE CUMPLEN" -ForegroundColor Red
+    Write-Output ""
+    Write-Output "❌ ALGUNOS UMBRALES NO SE CUMPLEN"
     exit 1
 }

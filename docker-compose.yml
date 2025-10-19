@@ -1,17 +1,18 @@
 services:
-  jmeter-master:
+  jmeter-performance-test:
     image: justb4/jmeter:5.5
     container_name: jmeter-performance-test
     volumes:
       - ./test-plans:/test-plans
       - ./results:/results
-      - ./config:/config
-    command: >
-      /bin/sh -c "
-      jmeter -n -t /test-plans/api-performance.jmx
-        -l /results/results.jtl
-        -Jthreads=50
-        -Jrampup=120
-        -Jduration=300
-        -e -o /results/html-report
-      "
+    command: [
+      "-n",
+      "-t", "/test-plans/api-performance.jmx",
+      "-l", "/results/results.jtl",
+      "-Jthreads=50",
+      "-Jrampup=120",
+      "-Jduration=300",
+      "-f",
+      "-e",
+      "-o", "/results/html-report"
+    ]

@@ -1,29 +1,25 @@
-<#
-.SYNOPSIS
-    Prueba rápida de JMeter sin verificación de umbrales
-.EXAMPLE
-    .\quick-test.ps1
-#>
+@echo off
+chcp 65001 >nul
+echo ======================
+echo   QUICK JMETER TEST
+echo ======================
+echo.
+echo "⚡ Quick test: 5 users, 10s ramp-up, 30s duration"
+echo.
 
-Write-Host "=== PRUEBA RÁPIDA JMETER ===" -ForegroundColor Cyan
+echo Cleaning...
+if exist results rmdir /s /q results
+mkdir results
 
-Remove-Item -Path "results" -Recurse -Force -ErrorAction SilentlyContinue
-New-Item -ItemType Directory -Path "results" -Force | Out-Null
+echo Running quick test...
+docker run --rm -v "%CD%\test-plans:/test-plans" -v "%CD%\results:/results" justb4/jmeter:5.5 -n -t /test-plans/api-performance.jmx -l /results/results.jtl -e -o /results/html-report -Jthreads=5 -Jrampup=10 -Jduration=30
 
-Write-Host "Ejecutando prueba rápida..." -ForegroundColor Yellow
-docker run --rm `
-  -v "${PWD}\test-plans:/test-plans" `
-  -v "${PWD}\results:/results" `
-  justb4/jmeter:5.5 `
-  -n -t /test-plans/api-performance.jmx `
-  -l /results/results.jtl `
-  -Jthreads=2 `
-  -Jrampup=5 `
-  -Jduration=15
+if %errorlevel% equ 0 (
+    echo ✅ Quick test completed
+    echo 📁 Generated files:
+    dir results
+) else (
+    echo ❌ Quick test failed
+)
 
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "✅ Prueba completada" -ForegroundColor Green
-    Get-ChildItem "results"
-} else {
-    Write-Host "❌ Prueba falló" -ForegroundColor Red
-}
+pause
