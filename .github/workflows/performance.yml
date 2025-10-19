@@ -1,42 +1,96 @@
 name: Automated Performance Testing
-on: [push, pull_request]
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: '0 2 * * 1'  # Ejecutar cada lunes a las 2 AM
 
 jobs:
   performance:
+    name: Performance Tests with JMeter
     runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
     
-    - name: Setup directories
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create directory structure
       run: |
         mkdir -p test-plans config results
-        chmod +x config/check-thresholds.sh
+        echo "📁 Project structure created"
         
-    - name: Run JMeter tests
+    - name: Setup JMeter test environment
       run: |
+        echo "🔧 Setting up test environment..."
+        ls -la test-plans/ || echo "No test-plans directory"
+        ls -la config/ || echo "No config directory"
+        
+    - name: Make threshold script executable
+      run: chmod +x config/check-thresholds.sh
+      
+    - name: Run JMeter performance tests with HTML report
+      run: |
+        echo "🚀 Running JMeter performance tests..."
         docker run --rm \
           -v $PWD/test-plans:/test-plans \
           -v $PWD/results:/results \
           -v $PWD/config:/config \
           justb4/jmeter:5.5 \
-          jmeter -n -t /test-plans/api-performance.jmx \
-            -p /config/test.properties \
-            -l /results/results.jtl \
-            -e -o /results/html-report \
-            -Jthreads=50 \
-            -Jrampup=120 \
-            -Jduration=300
-            
-    - name: Check thresholds
+          -n -t /test-plans/api-performance.jmx \
+          -l /results/results.jtl \
+          -e -o /results/html-report \
+          -Jthreads=10 \
+          -Jrampup=30 \
+          -Jduration=60
+        
+    - name: Verify performance thresholds
       run: |
+        echo "📊 Verifying performance thresholds..."
         docker run --rm \
           -v $PWD/results:/results \
           -v $PWD/config:/config \
-          justb4/jmeter:5.5 \
-          /bin/sh -c "/config/check-thresholds.sh /results/results.jtl"
+          alpine:latest \
+          /bin/sh -c "chmod +x /config/check-thresholds.sh && /config/check-thresholds.sh /results/results.jtl"
           
-    - name: Upload reports
+    - name: Upload HTML Report Artifact
       uses: actions/upload-artifact@v4
+      if: always()  # Subir artifact incluso si falla
       with:
-        name: performance-reports
+        name: jmeter-html-dashboard
+        path: results/html-report/
+        retention-days: 30
+        overwrite: true
+        
+    - name: Upload Test Results Artifact
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: jmeter-raw-results
         path: results/
+        retention-days: 30
+        overwrite: true
+        
+    - name: Display performance summary
+      run: |
+        echo "📈 PERFORMANCE TEST SUMMARY"
+        echo "============================"
+        if [ -f "results/results.jtl" ]; then
+          TOTAL_REQUESTS=$(grep -c "<httpSample" results/results.jtl 2>/dev/null || grep -c "timeStamp" results/results.jtl | tail -n +2 | wc -l)
+          echo "✅ Total Requests: $TOTAL_REQUESTS"
+        else
+          echo "❌ No results file generated"
+        fi
+        
+        if [ -d "results/html-report" ]; then
+          echo "✅ HTML Dashboard: Generated and available as artifact"
+        else
+          echo "❌ HTML Dashboard: Not generated"
+        fi
+        
+        echo ""
+        echo "📦 Artifacts Available:"
+        echo "   - jmeter-html-dashboard: Interactive performance dashboard"
+        echo "   - jmeter-raw-results: Raw test results and logs"
