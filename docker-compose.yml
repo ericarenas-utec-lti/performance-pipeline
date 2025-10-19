@@ -6,15 +6,12 @@ services:
       - ./test-plans:/test-plans
       - ./results:/results
       - ./config:/config
-    command: 
-      - -n
-      - -t
-      - /test-plans/api-performance.jmx
-      - -l
-      - /results/results.jtl
-      - -e
-      - -o
-      - /results/html-report
-      - -Jthreads=5
-      - -Jrampup=10
-      - -Jduration=30
+    command: >
+      /bin/sh -c "
+      jmeter -n -t /test-plans/api-performance.jmx
+        -l /results/results.jtl
+        -Jthreads=5
+        -Jrampup=10
+        -Jduration=30
+        -e -o /results/html-report
+      "
