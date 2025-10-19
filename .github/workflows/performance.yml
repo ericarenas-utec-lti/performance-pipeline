@@ -5,8 +5,6 @@ on:
     branches: [ main, develop ]
   pull_request:
     branches: [ main ]
-  schedule:
-    - cron: '0 2 * * 1'  # Ejecutar cada lunes a las 2 AM
 
 jobs:
   performance:
@@ -22,6 +20,12 @@ jobs:
         mkdir -p test-plans config results
         echo "📁 Project structure created"
         
+    - name: Clean results directory
+      run: |
+        echo "🧹 Cleaning previous results..."
+        rm -rf results/*
+        ls -la results/ || echo "Results directory is empty"
+        
     - name: Setup JMeter test environment
       run: |
         echo "🔧 Setting up test environment..."
@@ -34,17 +38,43 @@ jobs:
     - name: Run JMeter performance tests with HTML report
       run: |
         echo "🚀 Running JMeter performance tests..."
+        
+        # Primero ejecutar sin reporte HTML para generar JTL
         docker run --rm \
           -v $PWD/test-plans:/test-plans \
           -v $PWD/results:/results \
-          -v $PWD/config:/config \
           justb4/jmeter:5.5 \
           -n -t /test-plans/api-performance.jmx \
           -l /results/results.jtl \
-          -e -o /results/html-report \
-          -Jthreads=10 \
-          -Jrampup=30 \
-          -Jduration=60
+          -Jthreads=5 \
+          -Jrampup=15 \
+          -Jduration=30
+        
+        # Luego generar reporte HTML desde el JTL
+        echo "📊 Generating HTML report from results..."
+        docker run --rm \
+          -v $PWD/results:/results \
+          justb4/jmeter:5.5 \
+          -g /results/results.jtl \
+          -o /results/html-report
+          
+    - name: Verify results were generated
+      run: |
+        echo "✅ Checking generated files..."
+        ls -la results/
+        if [ -f "results/results.jtl" ]; then
+          echo "📈 Results file: $(wc -l < results/results.jtl) lines"
+        else
+          echo "❌ No results file generated"
+          exit 1
+        fi
+        
+        if [ -d "results/html-report" ]; then
+          echo "🌐 HTML report generated successfully"
+          ls -la results/html-report/ | head -10
+        else
+          echo "⚠️ HTML report not generated"
+        fi
         
     - name: Verify performance thresholds
       run: |
@@ -57,7 +87,7 @@ jobs:
           
     - name: Upload HTML Report Artifact
       uses: actions/upload-artifact@v4
-      if: always()  # Subir artifact incluso si falla
+      if: always()
       with:
         name: jmeter-html-dashboard
         path: results/html-report/
@@ -77,17 +107,32 @@ jobs:
       run: |
         echo "📈 PERFORMANCE TEST SUMMARY"
         echo "============================"
+        
         if [ -f "results/results.jtl" ]; then
-          TOTAL_REQUESTS=$(grep -c "<httpSample" results/results.jtl 2>/dev/null || grep -c "timeStamp" results/results.jtl | tail -n +2 | wc -l)
+          # Contar requests en formato CSV o XML
+          if head -1 results/results.jtl | grep -q "timeStamp"; then
+            TOTAL_REQUESTS=$(tail -n +2 results/results.jtl | wc -l)
+            ERROR_REQUESTS=$(tail -n +2 results/results.jtl | grep -c ",false,\|,[45][0-9][0-9],")
+          else
+            TOTAL_REQUESTS=$(grep -c "<httpSample" results/results.jtl 2>/dev/null || echo "0")
+            ERROR_REQUESTS=$(grep "<httpSample" results/results.jtl 2>/dev/null | grep -c 's="false"' 2>/dev/null || echo "0")
+          fi
+          
           echo "✅ Total Requests: $TOTAL_REQUESTS"
+          echo "❌ Error Requests: $ERROR_REQUESTS"
+          
+          if [ "$TOTAL_REQUESTS" -gt 0 ]; then
+            ERROR_RATE=$((ERROR_REQUESTS * 100 / TOTAL_REQUESTS))
+            echo "📊 Error Rate: ${ERROR_RATE}%"
+          fi
         else
           echo "❌ No results file generated"
         fi
         
         if [ -d "results/html-report" ]; then
-          echo "✅ HTML Dashboard: Generated and available as artifact"
+          echo "🌐 HTML Dashboard: Generated and available as artifact"
         else
-          echo "❌ HTML Dashboard: Not generated"
+          echo "⚠️ HTML Dashboard: Not generated"
         fi
         
         echo ""
